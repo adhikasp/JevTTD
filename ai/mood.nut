@@ -1,0 +1,113 @@
+/*
+ * This file is part of JevTTD.
+ *
+ * JevTTD is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * JevTTD is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ */
+
+/**
+ * @file mood.nut The Intent Router: classifies the current game state into a
+ * Mood relative to the human player, so the (not-yet-written) route managers
+ * can dispatch to different behavior instead of always doing the single
+ * "best" thing. Real trigger heuristics are still coarse - see TODOs.
+ */
+
+enum Mood {
+	SETTLER,  ///< Default/neutral: still finding its feet, no strong read on the game yet.
+	UNDERDOG, ///< Clearly behind the strongest rival: bold, cheap, catch-up plays.
+	RIVAL,    ///< Competing head-on for the same towns/industries as the player.
+	SHOWMAN,  ///< Comfortably ahead: spend on spectacle instead of more optimal filler.
+	COPYCAT,  ///< Mirror something the player just did.
+	RECOVERY, ///< Just took a big loss: visible panic-sell, then dramatic rebuild.
+}
+
+class MoodEngine {
+	current = null;
+	last_evaluated = null;
+	last_balance = null;
+
+	constructor()
+	{
+		this.current = Mood.SETTLER;
+		this.last_evaluated = 0;
+		this.last_balance = null;
+	}
+
+	/**
+	 * Re-evaluate the current mood if enough time has passed, otherwise
+	 * return the cached value. Cheap to call every loop iteration.
+	 */
+	function Evaluate();
+
+	/** @return Human-readable name for logging. */
+	static function ToString(mood);
+}
+
+function MoodEngine::Evaluate()
+{
+	local today = AIDate.GetCurrentDate();
+	if (today - this.last_evaluated < 30 && this.last_evaluated != 0) return this.current;
+	this.last_evaluated = today;
+
+	local my_balance = AICompany.GetBankBalance(AICompany.COMPANY_SELF);
+	local just_lost_money = this.last_balance != null && my_balance < this.last_balance * 0.7;
+	this.last_balance = my_balance;
+
+	local my_value = AICompany.GetQuarterlyCompanyValue(AICompany.COMPANY_SELF, 0);
+
+	local candidates = [Mood.SETTLER, Mood.RIVAL, Mood.COPYCAT];
+	local weights = [2.0, 2.0, 1.0];
+
+	local company_list = AICompanyList();
+	company_list.RemoveItem(AICompany.COMPANY_SELF);
+	if (!company_list.IsEmpty()) {
+		company_list.Valuate(AICompany.GetQuarterlyCompanyValue, 0);
+		company_list.Sort(AIList.SORT_BY_VALUE, AIList.SORT_DESCENDING);
+		local rival_value = company_list.GetValue(company_list.Begin());
+
+		/* TODO: this should really compare against the *human* player specifically,
+		 * not just whoever is richest - fine as a first pass while there's only
+		 * ever one rival in dev testing. */
+		if (rival_value > 0 && my_value < rival_value * 0.5) {
+			candidates.push(Mood.UNDERDOG);
+			weights.push(5.0);
+		} else if (my_value > rival_value * 2) {
+			candidates.push(Mood.SHOWMAN);
+			weights.push(4.0);
+		}
+	}
+
+	if (just_lost_money) {
+		candidates.push(Mood.RECOVERY);
+		weights.push(6.0);
+	}
+
+	/* TODO: also weight RIVAL up sharply when our route network and the
+	 * player's overlap in the same towns/industries (needs a "who serves
+	 * this industry" lookup once the route managers exist), and COPYCAT up
+	 * when the player just did something visually distinctive (new vehicle
+	 * type, new rail type, etc. - hook off AIEventController). */
+
+	this.current = FunBrain.Choice(candidates, weights);
+	return this.current;
+}
+
+function MoodEngine::ToString(mood)
+{
+	switch (mood) {
+		case Mood.SETTLER:  return "Settler";
+		case Mood.UNDERDOG: return "Underdog";
+		case Mood.RIVAL:    return "Rival";
+		case Mood.SHOWMAN:  return "Showman";
+		case Mood.COPYCAT:  return "Copycat";
+		case Mood.RECOVERY: return "Recovery";
+	}
+	return "Unknown";
+}
