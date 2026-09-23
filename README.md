@@ -17,7 +17,7 @@ This repo grew out of a conversation exploring how OpenTTD's AI system actually 
 ## Two-repo architecture
 
 - **[adhikasp/OpenTTD](https://github.com/adhikasp/OpenTTD), branch `feature/ai-decision-http`** — engine fork. Adds an opt-in `ScriptDecision` Script API class (`AIDecision`/`GSDecision` from Squirrel) so a script *can* delegate a decision to an external service, without breaking determinism for anyone who hasn't turned it on. It's a deliberately dumb, vendor-agnostic relay — `AIDecision.Ask(request_json)` POSTs an opaque JSON string to a single player-configured endpoint and returns the raw response string (or `null`); the engine has no idea what TypeSafe.ai (or anything else) actually wants to see in that JSON, on purpose, to keep the engine-side surface small and reviewable. It reuses the same suspend/resume machinery `DoCommand` already uses for networked-game commands, and is **unconditionally disabled in any networked game** regardless of settings — this sidesteps the multiplayer-determinism problem entirely rather than trying to solve it. Gated behind two new client-only (never-synced, never-saved) settings: `script.allow_decision_calls` (off by default) and `script.decision_service_url` (empty by default, set via the console `setting` command). Status: **implemented on that branch, compiles and links clean; not upstreamed, not required for this repo to work.**
-- **This repo (JevTTD)** — the actual AI script. Runs today, unmodified, on stock OpenTTD. Its decision brain (`ai/funbrain.nut`) is a pure-local reimplementation of TypeSafe.ai's `Choice` / `Score` / `Noul` vocabulary using Squirrel's own RNG — no network dependency, and that stays the permanent baseline. `funbrain.nut` now also has `RemoteAvailable()`/`RemoteAsk()` thin passthroughs to `AIDecision` for when the fork above is in use, but they are **not yet wired into `Choice`/`Score`/`Noul`** — that needs an actual request/response JSON schema decided first (see the file's header comment), not something to improvise silently in a plumbing pass.
+- **This repo (JevTTD)** — the actual AI script. Runs today, unmodified, on stock OpenTTD; the engine fork above is a strictly optional enhancement. Its decision brain (`ai/funbrain.nut`) is a pure-local reimplementation of TypeSafe.ai's `Choice` / `Score` / `Noul` vocabulary using Squirrel's own RNG — no network dependency, and that stays the permanent baseline. `ai/systemone.nut` speaks the real Jev protocol (`POST /v1/systemone`, schema captured from a live [laya-serve](https://huggingface.co/convaiinnovations/laya) response — a small, self-hostable, Jev-compatible model, used here as a free stand-in for a real TypeSafe.ai account) over `FunBrain.RemoteAsk()`; `MoodEngine.Evaluate()` uses it to ask the remote service to pick a mood, falling back to the local weighted-random choice on any failure. Verified working end to end against a live laya-serve instance in a real headless game.
 
 ## The decision brain
 
@@ -34,13 +34,18 @@ Four ideas borrowed from TypeSafe.ai's pattern docs, reimplemented as local Squi
 
 ```
 ai/
-  info.nut      - AIInfo registration, settings (incl. a "showmanship" slider)
-  main.nut      - main loop: event pump -> mood evaluation -> (TODO) route managers
-  mood.nut      - MoodEngine state machine (stubbed heuristics, real triggers TODO)
-  funbrain.nut  - Choice / Score / Noul primitives (local); RemoteAvailable/RemoteAsk passthroughs to AIDecision (unwired)
+  info.nut               - AIInfo registration, settings (incl. a "showmanship" slider)
+  main.nut               - main loop: event pump -> mood evaluation -> aircraft manager -> finance log
+  mood.nut                - MoodEngine state machine; asks the remote service first, falls back to local FunBrain.Choice()
+  funbrain.nut            - Choice / Score / Noul primitives (local); RemoteAvailable/RemoteAsk passthroughs to AIDecision
+  systemone.nut           - the real Jev protocol (POST /v1/systemone) on top of RemoteAsk()
+  json.nut                - hand-rolled JSON encode/decode (OpenTTD's Script API has none built in)
+  air/aircraftmanager.nut - WORKING: builds small airports + planes between two FunBrain-picked towns
 ```
 
-Not yet built: the actual rail/road/air route managers that *use* FunBrain to decide what to build (today's `main.nut` just evaluates mood and logs it). The plan is to lift the working parts of AdmiralAI/trAIns' route-finding mechanics (pathfinding, station placement, vehicle selection) verbatim — that part isn't where "fun vs. optimal" lives — and swap only the *scoring and selection* step for `FunBrain.Score()` + `FunBrain.Choice()`.
+Verified by actually running headless simulations (not just "it compiles"): solo, JevTTD grows a bank balance from ~25k to 700k+ and company value to 850k+ over roughly 10 simulated years, building 8 real air routes, zero script errors. Two real bugs were found and fixed this way — see the git log for `air/aircraftmanager.nut` for specifics (a too-small tile search budget that missed flat land near towns, and a route that could get half-built before discovering it couldn't afford the planes).
+
+Not yet built: rail and road managers (aircraft was deliberately first — no pathfinding/junction/signal logic needed, just two patches of flat ground), and `FunBrain.Score()`'s full composite rubric (novelty/visibility/drama/spectacle/safety) isn't wired into route *selection* yet — town choice today is population-weighted-random via `FunBrain.Choice()` alone, not yet scored against the player-awareness rubric described below. The plan for rail/road is still to lift the working parts of AdmiralAI/trAIns' route-finding mechanics (pathfinding, station placement, vehicle selection) verbatim — that part isn't where "fun vs. optimal" lives — and swap only the *scoring and selection* step for `FunBrain.Score()` + `FunBrain.Choice()`, the same pattern `air/aircraftmanager.nut` already established.
 
 ## Non-goals
 
