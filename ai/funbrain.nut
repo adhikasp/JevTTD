@@ -17,12 +17,18 @@
  * primitives (Choice / Score / Noul), used to pick "fun" actions instead of
  * "optimal" ones.
  *
- * There is deliberately no network call anywhere in this file. OpenTTD's AI
- * sandbox exposes no HTTP capability to scripts (see the project README), so
- * everything here resolves locally using AIBase.RandRange. If a future
- * engine build exposes an opt-in remote-decision API, this is the one file
- * that would grow a remote-first path with this local logic kept as the
- * fallback - nothing else in the AI needs to know the difference.
+ * Choice/Score/Noul/ScoreAndChoose below are all local (AIBase.RandRange),
+ * and that stays the baseline this AI always works on stock OpenTTD with.
+ *
+ * The companion engine fork (adhikasp/OpenTTD, branch feature/ai-decision-http)
+ * has since landed a real opt-in AIDecision.IsAvailable()/AIDecision.Ask()
+ * API - RemoteAvailable()/RemoteAsk() below are thin passthroughs to it.
+ * Deliberately NOT wired into Choice/Score/Noul yet: AIDecision.Ask() is a
+ * dumb opaque JSON-in/JSON-out relay (see that engine PR's design notes),
+ * and picking the actual request/response JSON shape is a protocol decision
+ * that shouldn't be made silently in a plumbing pass - do that once we know
+ * what's on the other end of script.decision_service_url (a real TypeSafe.ai
+ * adapter vs. a local mock vs. something else).
  */
 
 class FunBrain {
@@ -64,6 +70,24 @@ class FunBrain {
 	 * @return A single chosen candidate, or null if `candidates` is empty.
 	 */
 	static function ScoreAndChoose(candidates, rubric, context, pool_size);
+
+	/**
+	 * Whether a remote decision call could plausibly succeed right now
+	 * (single-player, player opted in via script.allow_decision_calls, and
+	 * script.decision_service_url is set). Cheap; safe to call every time
+	 * before deciding whether to bother building a request.
+	 */
+	static function RemoteAvailable();
+
+	/**
+	 * Send a raw JSON request to the locally configured decision service
+	 * and suspend this script until a response arrives. Thin passthrough to
+	 * AIDecision.Ask() - see the file header for why this isn't wired into
+	 * Choice/Score/Noul yet.
+	 * @param request_json The request body, already JSON-encoded by the caller.
+	 * @return The response body as a string, or null on any failure.
+	 */
+	static function RemoteAsk(request_json);
 }
 
 function FunBrain::Choice(options, weights)
@@ -117,4 +141,21 @@ function FunBrain::ScoreAndChoose(candidates, rubric, context, pool_size)
 		weights.push(scored[i][1] - scored[n - 1][1] + 1.0);
 	}
 	return FunBrain.Choice(pool, weights);
+}
+
+function FunBrain::RemoteAvailable()
+{
+	/* AIDecision only exists on the companion engine fork; on stock OpenTTD
+	 * it's simply not registered, and calling AIDecision.IsAvailable()
+	 * directly would throw a runtime "the index 'AIDecision' does not
+	 * exist" error the first time this ran. Check the root table first so
+	 * this just reports "unavailable" on a vanilla client instead. */
+	if (!("AIDecision" in getroottable())) return false;
+	return AIDecision.IsAvailable();
+}
+
+function FunBrain::RemoteAsk(request_json)
+{
+	if (!FunBrain.RemoteAvailable()) return null;
+	return AIDecision.Ask(request_json);
 }

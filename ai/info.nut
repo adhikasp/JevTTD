@@ -31,7 +31,7 @@ class JevTTDInfo extends AIInfo {
 		AddSetting({name = "use_trains", description = "Enable trains", easy_value = 1, medium_value = 1, hard_value = 1, custom_value = 1, flags = CONFIG_BOOLEAN});
 		AddSetting({name = "use_planes", description = "Enable aircraft", easy_value = 1, medium_value = 1, hard_value = 1, custom_value = 1, flags = CONFIG_BOOLEAN});
 		AddSetting({name = "showmanship", description = "How much to favor spectacle over efficiency (0 = play it safe, 100 = maximum drama)", easy_value = 60, medium_value = 50, hard_value = 40, custom_value = 50, min_value = 0, max_value = 100, step_size = 10, flags = CONFIG_INGAME});
-		AddSetting({name = "use_remote_brain", description = "[experimental] Delegate some decisions to an external typed-decision service. Requires a patched client with the ScriptHTTP API; silently ignored on vanilla OpenTTD or in networked games.", easy_value = 0, medium_value = 0, hard_value = 0, custom_value = 0, flags = CONFIG_BOOLEAN});
+		AddSetting({name = "use_remote_brain", description = "[experimental, not yet wired up - see funbrain.nut] Delegate some decisions to an external typed-decision service via AIDecision.Ask(). Requires the adhikasp/OpenTTD feature/ai-decision-http build, plus script.allow_decision_calls and script.decision_service_url set locally; silently unavailable otherwise (vanilla OpenTTD, or any networked game).", easy_value = 0, medium_value = 0, hard_value = 0, custom_value = 0, flags = CONFIG_BOOLEAN});
 	}
 };
 
