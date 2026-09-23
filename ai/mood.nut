@@ -65,13 +65,24 @@ function MoodEngine::Evaluate()
 	local candidates = [Mood.SETTLER, Mood.RIVAL, Mood.COPYCAT];
 	local weights = [2.0, 2.0, 1.0];
 
-	local company_list = AICompanyList();
-	company_list.RemoveItem(AICompany.COMPANY_SELF);
-	if (!company_list.IsEmpty()) {
-		company_list.Valuate(AICompany.GetQuarterlyCompanyValue, 0);
-		company_list.Sort(AIList.SORT_BY_VALUE, AIList.SORT_DESCENDING);
-		local rival_value = company_list.GetValue(company_list.Begin());
-
+	/* There is no AICompanyList - OpenTTD's Script API doesn't expose company
+	 * enumeration as a list class like it does for towns/stations/industries.
+	 * The idiom (matching AdmiralAI and friends) is to walk the fixed
+	 * COMPANY_FIRST..COMPANY_LAST range and skip slots ResolveCompanyID()
+	 * says are empty. */
+	local my_company = AICompany.ResolveCompanyID(AICompany.COMPANY_SELF);
+	local rival_value = 0;
+	local found_rival = false;
+	for (local c = AICompany.COMPANY_FIRST; c < AICompany.COMPANY_LAST; c++) {
+		if (c == my_company) continue;
+		if (AICompany.ResolveCompanyID(c) == AICompany.COMPANY_INVALID) continue;
+		local value = AICompany.GetQuarterlyCompanyValue(c, 0);
+		if (!found_rival || value > rival_value) {
+			rival_value = value;
+			found_rival = true;
+		}
+	}
+	if (found_rival) {
 		/* TODO: this should really compare against the *human* player specifically,
 		 * not just whoever is richest - fine as a first pass while there's only
 		 * ever one rival in dev testing. */
