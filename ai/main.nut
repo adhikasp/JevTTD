@@ -12,24 +12,31 @@
  * GNU General Public License for more details.
  */
 
-/** @file main.nut Main loop. Currently just the event pump and mood
- * evaluation - the route managers that actually build anything are the
- * next piece of scaffolding (see README "Current scaffolding"). */
+/** @file main.nut Main loop: event pump, mood evaluation, and (so far) one
+ * working route manager - see air/aircraftmanager.nut. Rail/road managers
+ * are the next piece of scaffolding (see README "Current scaffolding"). */
 
 require("json.nut");
 require("funbrain.nut");
 require("systemone.nut");
 require("mood.nut");
+require("air/aircraftmanager.nut");
 
 class JevTTD extends AIController {
 	mood_engine = null;
+	aircraft_manager = null;
 	last_mood_logged = null;
+	last_route_attempt = null;
+	last_finance_log = null;
 
 	constructor()
 	{
 		::jev <- this;
 		this.mood_engine = MoodEngine();
+		this.aircraft_manager = AircraftManager();
 		this.last_mood_logged = null;
+		this.last_route_attempt = 0;
+		this.last_finance_log = 0;
 	}
 
 	function Start();
@@ -52,9 +59,9 @@ function JevTTD::Start()
 					AIEventEnginePreview.Convert(e).AcceptPreview();
 					break;
 				/* TODO: route AI_ET_INDUSTRY_OPEN / _CLOSE, vehicle crashes,
-				 * and company-value events to the (not yet written) route
-				 * managers once they exist. Vehicle crashes and big losses
-				 * are also natural triggers for Mood.RECOVERY. */
+				 * and company-value events to the route managers. Vehicle
+				 * crashes and big losses are also natural triggers for
+				 * Mood.RECOVERY. */
 			}
 		}
 
@@ -64,11 +71,23 @@ function JevTTD::Start()
 			this.last_mood_logged = mood;
 		}
 
-		/* TODO: this is where rail/road/air managers get consulted for a
-		 * shortlist of candidate actions, which then goes through
-		 * FunBrain.ScoreAndChoose(candidates, FunRubric, mood, pool_size)
-		 * instead of a plain argmax. The rubric and managers are the next
-		 * piece of scaffolding - see README. */
+		/* TODO: once there's more than one manager, candidate actions from
+		 * all of them should go through FunBrain.ScoreAndChoose(candidates,
+		 * FunRubric, mood, pool_size) instead of just always asking the one
+		 * manager we have. For now there is exactly one thing to do. */
+		local today = AIDate.GetCurrentDate();
+		if (today - this.last_route_attempt >= 60) {
+			this.last_route_attempt = today;
+			this.aircraft_manager.BuildNewRoute();
+		}
+
+		if (today - this.last_finance_log >= 90) {
+			this.last_finance_log = today;
+			AILog.Info("Finances: bank=" + AICompany.GetBankBalance(AICompany.COMPANY_SELF) +
+				" loan=" + AICompany.GetLoanAmount() +
+				" value=" + AICompany.GetQuarterlyCompanyValue(AICompany.COMPANY_SELF, 0) +
+				" vehicles=" + AIVehicleList().Count());
+		}
 
 		AIController.Sleep(50);
 	}
