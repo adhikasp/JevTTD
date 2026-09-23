@@ -48,6 +48,9 @@ class MoodEngine {
 
 	/** @return Human-readable name for logging. */
 	static function ToString(mood);
+
+	/** @return One-line description used as a SystemOne criteria entry. */
+	static function Describe(mood);
 }
 
 function MoodEngine::Evaluate()
@@ -106,8 +109,44 @@ function MoodEngine::Evaluate()
 	 * when the player just did something visually distinctive (new vehicle
 	 * type, new rail type, etc. - hook off AIEventController). */
 
+	/* Try the remote decision service first: hand it the same candidates
+	 * FunBrain.Choice() would pick from, described in words, and let it pick.
+	 * Falls straight through to the local weighted-random choice on any
+	 * failure (RemoteAvailable() false, server down, malformed reply, ...). */
+	local criteria = {};
+	foreach (mood in candidates) {
+		criteria.rawset(MoodEngine.ToString(mood).tolower(), MoodEngine.Describe(mood));
+	}
+	local state = "Company value " + my_value + " vs. best rival's " + rival_value +
+		" (no rival yet if 0). Just lost significant money: " + (just_lost_money ? "yes" : "no") + ".";
+	local remote = SystemOne.Choice(state, "Which mood should this transport company adopt right now?", criteria);
+	if (remote != null) {
+		local chosen_name = remote[0];
+		foreach (mood in candidates) {
+			if (MoodEngine.ToString(mood).tolower() == chosen_name) {
+				AILog.Info("Mood (remote, confidence " + remote[1] + "): " + MoodEngine.ToString(mood));
+				this.current = mood;
+				return this.current;
+			}
+		}
+		/* Server picked something outside our candidate set - ignore it and fall through. */
+	}
+
 	this.current = FunBrain.Choice(candidates, weights);
 	return this.current;
+}
+
+function MoodEngine::Describe(mood)
+{
+	switch (mood) {
+		case Mood.SETTLER:  return "Neutral, still finding its feet, no strong read on the game yet";
+		case Mood.UNDERDOG: return "Clearly behind the strongest rival: bold, cheap, catch-up plays";
+		case Mood.RIVAL:    return "Competing head-on for the same towns/industries as the rival";
+		case Mood.SHOWMAN:  return "Comfortably ahead: spend on spectacle instead of more optimal filler";
+		case Mood.COPYCAT:  return "Mirror something the rival just did";
+		case Mood.RECOVERY: return "Just took a big loss: visible panic-sell, then dramatic rebuild";
+	}
+	return "Unknown";
 }
 
 function MoodEngine::ToString(mood)

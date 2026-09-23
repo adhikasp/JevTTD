@@ -16,7 +16,9 @@
  * evaluation - the route managers that actually build anything are the
  * next piece of scaffolding (see README "Current scaffolding"). */
 
+require("json.nut");
 require("funbrain.nut");
+require("systemone.nut");
 require("mood.nut");
 
 class JevTTD extends AIController {

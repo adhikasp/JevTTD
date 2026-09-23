@@ -146,12 +146,16 @@ function FunBrain::ScoreAndChoose(candidates, rubric, context, pool_size)
 function FunBrain::RemoteAvailable()
 {
 	/* AIDecision only exists on the companion engine fork; on stock OpenTTD
-	 * it's simply not registered, and calling AIDecision.IsAvailable()
-	 * directly would throw a runtime "the index 'AIDecision' does not
-	 * exist" error the first time this ran. Check the root table first so
-	 * this just reports "unavailable" on a vanilla client instead. */
-	if (!("AIDecision" in getroottable())) return false;
-	return AIDecision.IsAvailable();
+	 * it's simply not registered, and referencing it directly would throw a
+	 * runtime "the index 'AIDecision' does not exist" error the first time
+	 * this ran. OpenTTD's sandboxed Squirrel doesn't expose getroottable()
+	 * either (tried that first - also "does not exist"), so just catch the
+	 * lookup failure instead of trying to check for it up front. */
+	try {
+		return AIDecision.IsAvailable();
+	} catch (e) {
+		return false;
+	}
 }
 
 function FunBrain::RemoteAsk(request_json)

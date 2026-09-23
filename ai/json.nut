@@ -42,6 +42,7 @@ class Json {
 	static function EncodeString(s);
 	static function HexDigit(nibble);
 	static function ToHex4(code);
+	static function JoinComma(parts);
 }
 
 function Json::HexDigit(nibble)
@@ -93,7 +94,7 @@ function Json::Encode(value)
 	if (t == "array") {
 		local parts = [];
 		foreach (v in value) parts.push(Json.Encode(v));
-		return "[" + ",".join(parts) + "]";
+		return "[" + Json.JoinComma(parts) + "]";
 	}
 
 	if (t == "table") {
@@ -101,10 +102,21 @@ function Json::Encode(value)
 		foreach (k, v in value) {
 			parts.push(Json.EncodeString(k.tostring()) + ":" + Json.Encode(v));
 		}
-		return "{" + ",".join(parts) + "}";
+		return "{" + Json.JoinComma(parts) + "}";
 	}
 
 	throw ("Json.Encode: unsupported type '" + t + "'");
+}
+
+/* Squirrel arrays have no join() method. */
+function Json::JoinComma(parts)
+{
+	local out = "";
+	for (local i = 0; i < parts.len(); i++) {
+		if (i > 0) out += ",";
+		out += parts[i];
+	}
+	return out;
 }
 
 /* --- Decoder --- */
